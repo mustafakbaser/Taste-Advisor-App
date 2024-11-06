@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Utensils, History, X, ChefHat, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import LanguageSelector from './components/LanguageSelector';
+import { translations, getPrompt } from './utils/translations';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(API_KEY);
@@ -10,6 +12,7 @@ interface SearchHistory {
   ingredients: string;
   recipes: string;
   timestamp: number;
+  language: 'en' | 'tr';
 }
 
 function App() {
@@ -18,17 +21,27 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [language, setLanguage] = useState<'en' | 'tr'>('tr');
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('searchHistory');
+    const savedLanguage = localStorage.getItem('language');
     if (savedHistory) {
       setSearchHistory(JSON.parse(savedHistory));
     }
+    if (savedLanguage) {
+      setLanguage(savedLanguage as 'en' | 'tr');
+    }
   }, []);
+
+  const handleLanguageChange = (newLang: 'en' | 'tr') => {
+    setLanguage(newLang);
+    localStorage.setItem('language', newLang);
+  };
 
   const saveToHistory = (ingredients: string, recipes: string) => {
     const newHistory = [
-      { ingredients, recipes, timestamp: Date.now() },
+      { ingredients, recipes, timestamp: Date.now(), language },
       ...searchHistory,
     ].slice(0, 5);
     setSearchHistory(newHistory);
@@ -44,7 +57,7 @@ function App() {
     
     try {
       const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-      const prompt = `Elimdeki malzemeler: ${ingredients}. Bu malzemelerle yapılabilecek 3 yemek tarifi öner ve her biri için kısa bir tarif yaz. Lütfen Türkçe yanıt ver.`;
+      const prompt = getPrompt(ingredients, language);
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
@@ -53,7 +66,7 @@ function App() {
       saveToHistory(ingredients, text);
     } catch (error) {
       console.error('Error:', error);
-      setRecipes('Üzgünüm, bir hata oluştu. Lütfen daha sonra tekrar deneyin.');
+      setRecipes(translations[language].errorMessage);
     } finally {
       setLoading(false);
     }
@@ -62,6 +75,7 @@ function App() {
   const loadFromHistory = (historyItem: SearchHistory) => {
     setIngredients(historyItem.ingredients);
     setRecipes(historyItem.recipes);
+    setLanguage(historyItem.language);
     setShowHistory(false);
   };
 
@@ -72,7 +86,7 @@ function App() {
   };
 
   const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString('tr-TR', {
+    return new Date(timestamp).toLocaleString(language === 'tr' ? 'tr-TR' : 'en-US', {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
@@ -80,8 +94,12 @@ function App() {
     });
   };
 
+  const t = translations[language];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-white to-blue-50 py-6 flex flex-col justify-center sm:py-12">
+      <LanguageSelector currentLang={language} onLanguageChange={handleLanguageChange} />
+      
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -99,9 +117,9 @@ function App() {
               <ChefHat className="h-14 w-14 text-cyan-500" />
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-500 to-blue-500 bg-clip-text text-transparent">
-                  Ne Yemek Yapsam?
+                  {t.title}
                 </h1>
-                <p className="text-sm text-gray-500 mt-1">Malzemelerinizi girin, size özel tarifler önereceğim!</p>
+                <p className="text-sm text-gray-500 mt-1">{t.subtitle}</p>
               </div>
             </motion.div>
 
@@ -113,7 +131,7 @@ function App() {
                     name="ingredients"
                     type="text"
                     className="peer h-12 w-full border-2 border-gray-300 text-gray-900 rounded-lg px-4 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 transition-all"
-                    placeholder="Örn: domates, peynir, yumurta"
+                    placeholder={t.inputPlaceholder}
                     value={ingredients}
                     onChange={(e) => setIngredients(e.target.value)}
                   />
@@ -125,7 +143,7 @@ function App() {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    {loading ? 'Tarifler Hazırlanıyor...' : 'Tarif Öner'}
+                    {loading ? t.loadingText : t.submitButton}
                   </motion.button>
                   <motion.button
                     type="button"
@@ -149,7 +167,7 @@ function App() {
                   >
                     <div className="flex items-center space-x-2 mb-4">
                       <Clock className="h-5 w-5 text-gray-500" />
-                      <h3 className="text-lg font-semibold text-gray-700">Geçmiş Aramalar</h3>
+                      <h3 className="text-lg font-semibold text-gray-700">{t.historyTitle}</h3>
                     </div>
                     <motion.div className="space-y-2">
                       {searchHistory.map((item, index) => (
@@ -165,10 +183,15 @@ function App() {
                             className="flex-1 text-left"
                           >
                             <p className="font-medium text-gray-800">{item.ingredients}</p>
-                            <p className="text-sm text-gray-500 flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {formatDate(item.timestamp)}
-                            </p>
+                            <div className="flex items-center gap-3 text-sm text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {formatDate(item.timestamp)}
+                              </span>
+                              <span className="uppercase text-xs font-semibold text-cyan-600 bg-cyan-50 px-2 py-0.5 rounded-full">
+                                {item.language}
+                              </span>
+                            </div>
                           </button>
                           <motion.button
                             onClick={() => removeFromHistory(item.timestamp)}
@@ -195,7 +218,7 @@ function App() {
                   >
                     <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                       <Utensils className="h-5 w-5 text-cyan-500" />
-                      Önerilen Tarifler
+                      {t.suggestedRecipes}
                     </h3>
                     <motion.div 
                       className="bg-gradient-to-br from-white to-gray-50 rounded-lg p-6 shadow-sm border border-gray-100"
